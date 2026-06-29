@@ -1,0 +1,25 @@
+node_modules/
+dist/
+uploads/*
+!uploads/.gitkeep
+.env
+.env.local
+.env.*.local
+
+# Prisma generated files (generated at build time)
+# Keep schema.prisma but ignore migrations if using db push in dev
+# prisma/migrations/
+
+*.log
+npm-debug.log*
+
+coverage/
+.nyc_output/
+
+.DS_Store
+Thumbs.db
+
+
+# Editor
+.vscode/settings.json
+.idea/

@@ -1,0 +1,88 @@
+version: '3.9'
+
+# ─── Development / Local Stack ────────────────────────────────────────────────
+# For production, use docker-compose.prod.yml.
+
+services:
+  # ── PostgreSQL + pgvector ──────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: resume-analyzer-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-resume_analyzer}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  # Used for: response caching, rate limiting, BullMQ queues, job status
+  redis:
+    image: redis:7-alpine
+    container_name: resume-analyzer-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 60 1000
+      --loglevel warning
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── API server ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      target: production
+    container_name: resume-analyzer-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-resume_analyzer}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_PRIMARY_PROVIDER: ${AI_PRIMARY_PROVIDER:-openai}
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - '3000:3000'
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ['CMD', 'node', '-e',
+        "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:

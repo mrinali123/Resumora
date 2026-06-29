@@ -1,0 +1,402 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..900;1,14..32,300..900&display=swap');
+
+/* ── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --surface-0: #0a0a0a;
+  --surface-1: #111111;
+  --surface-2: #1a1a1a;
+  --surface-3: #222222;
+  --surface-4: #2a2a2a;
+
+  --border:       #2a2a2a;
+  --border-strong: #3d3d3d;
+
+  --ink-1: #f0f0f0;
+  --ink-2: #888888;
+  --ink-3: #4a4a4a;
+
+  --accent:        #5b8ef0;
+  --accent-hover:  #7aa4f4;
+  --accent-dim:    rgba(91, 142, 240, 0.12);
+  --accent-border: rgba(91, 142, 240, 0.25);
+
+  --success:        #3fb950;
+  --success-dim:    rgba(63, 185, 80, 0.1);
+  --success-border: rgba(63, 185, 80, 0.2);
+
+  --warning:        #d29922;
+  --warning-dim:    rgba(210, 153, 34, 0.1);
+  --warning-border: rgba(210, 153, 34, 0.2);
+
+  --danger:         #f85149;
+  --danger-dim:     rgba(248, 81, 73, 0.1);
+  --danger-border:  rgba(248, 81, 73, 0.2);
+
+  --sidebar-width: 220px;
+  --topbar-height: 48px;
+}
+
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--surface-0);
+  color: var(--ink-1);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+}
+
+/* ── Selection ─────────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-dim);
+  color: var(--ink-1);
+}
+
+/* ── Focus ─────────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Typography utilities ──────────────────────────────────────────────────── */
+.heading-1 {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ink-1);
+}
+
+.heading-2 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--ink-1);
+}
+
+.heading-3 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  color: var(--ink-1);
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink-1);
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.body-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.card-elevated {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* ── Divider ─────────────────────────────────────────────────────────────────── */
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────────── */
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background 0.1s, color 0.1s;
+  cursor: pointer;
+}
+
+.sidebar-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-1);
+}
+
+.sidebar-item.active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-1);
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────────── */
+.input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--ink-1);
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  padding: 7px 14px;
+  transition: background 0.15s, opacity 0.15s, transform 0.1s;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface-3);
+  color: var(--ink-1);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-4);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-1);
+}
+
+.btn-danger {
+  background: var(--danger-dim);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+.btn-danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Badge ──────────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 2px 7px;
+  border: 1px solid;
+}
+
+.badge-success {
+  background: var(--success-dim);
+  color: var(--success);
+  border-color: var(--success-border);
+}
+
+.badge-warning {
+  background: var(--warning-dim);
+  color: var(--warning);
+  border-color: var(--warning-border);
+}
+
+.badge-danger {
+  background: var(--danger-dim);
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.badge-neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-2);
+  border-color: var(--border);
+}
+
+.badge-blue {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+/* ── Progress bar ────────────────────────────────────────────────────────────── */
+.progress-track {
+  height: 4px;
+  background: var(--surface-4);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Score ring animation ────────────────────────────────────────────────────── */
+.score-ring-path {
+  stroke-dashoffset: 251.3;
+  transition: stroke-dashoffset 1s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+/* ── Skeleton loading ────────────────────────────────────────────────────────── */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.skeleton {
+  background: var(--surface-3);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── Page animations ─────────────────────────────────────────────────────────── */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-in {
+  animation: page-in 0.25s ease forwards;
+}
+
+/* ── Landing specific ────────────────────────────────────────────────────────── */
+.landing-bg {
+  background: var(--surface-0);
+}
+
+.landing-gradient {
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91, 142, 240, 0.08) 0%, transparent 70%);
+}
+
+/* Grid background for hero */
+.hero-grid {
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 80% at 50% 0%, black 40%, transparent 100%);
+}
+
+/* Recharts overrides — remove gradients, clean lines */
+.recharts-cartesian-grid line {
+  stroke: var(--border) !important;
+}
+
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border-strong) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+  font-size: 12px !important;
+  font-family: 'Inter', sans-serif !important;
+}
+
+.recharts-tooltip-item {
+  color: var(--ink-1) !important;
+}
+
+.recharts-tooltip-label {
+  color: var(--ink-2) !important;
+  margin-bottom: 4px !important;
+}

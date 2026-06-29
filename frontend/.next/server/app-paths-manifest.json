@@ -1,0 +1,11 @@
+{
+  "/login/page": "app/login/page.js",
+  "/analysis/page": "app/analysis/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/upload/page": "app/upload/page.js",
+  "/resumes/page": "app/resumes/page.js",
+  "/job-matching/page": "app/job-matching/page.js",
+  "/history/page": "app/history/page.js",
+  "/settings/page": "app/settings/page.js",
+  "/page": "app/page.js"
+}

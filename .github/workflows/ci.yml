@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true  # Cancel outdated PR runs when new commits push
+
+env:
+  NODE_VERSION: '20'
+  # Shared test env (no real secrets needed — tests use mocks)
+  DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/resume_analyzer_test'
+  JWT_SECRET: 'ci-test-secret-at-least-32-characters-long!!'
+  LOG_LEVEL: 'silent'
+  NODE_ENV: 'test'
+
+jobs:
+  # ── Job 1: Lint + Type Check ───────────────────────────────────────────────
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: TypeScript type check (0 errors required)
+        run: npx tsc --noEmit
+
+  # ── Job 2: Unit Tests ─────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: type-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run unit tests
+        run: npx jest --testPathPattern="tests/unit" --coverage --coverageReporters=lcov,text
+
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          flags: unit
+        continue-on-error: true  # Non-blocking: coverage upload is best-effort
+
+  # ── Job 3: Integration Tests ───────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: type-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run integration tests
+        run: npx jest --testPathPattern="tests/integration"
+
+  # ── Job 4: Build validation ────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Verify dist output exists
+        run: test -f dist/server.js
+
+  # ── Job 5: Docker build ────────────────────────────────────────────────────
+  # Runs only on push to main (not PRs) to avoid registry costs
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push for now)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: production
+          push: false
+          tags: resume-analyzer:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # BuildKit cache makes subsequent builds 2-3x faster

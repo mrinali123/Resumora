@@ -1,0 +1,438 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── pgvector setup ───────────────────────────────────────────────────────────
+// 1. Start the pgvector/pgvector:pg16 container (already in docker-compose.yml)
+// 2. Run:  psql $DATABASE_URL -f prisma/sql/00_enable_pgvector.sql
+// 3. Run:  npx prisma migrate dev --name phase3_vector
+// 4. After first batch of embeddings, run: prisma/sql/01_vector_indexes.sql
+
+enum ResumeStatus {
+  PENDING    // File received; extraction + parsing not yet run
+  PROCESSING // Pipeline in-flight (reserved for async worker queue in Phase 4)
+  PROCESSED  // Text extracted, parsed, chunked, and embedded (or embedding skipped)
+  FAILED     // Pipeline error — file is retained for reprocessing
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+
+  // Email verification — token is SHA-256 hash; link expires 24 h after registration
+  emailVerified           Boolean   @default(false)  @map("email_verified")
+  emailVerificationToken  String?   @map("email_verification_token")
+  emailVerificationExpiry DateTime? @map("email_verification_expiry")
+
+  // Password reset — token stored as SHA-256 hash; expiry is 1 hour from request time
+  passwordResetToken  String?   @map("password_reset_token")
+  passwordResetExpiry DateTime? @map("password_reset_expiry")
+
+  resumes      Resume[]
+  jobs         JobDescription[]
+  analyses     MatchAnalysis[]
+  atsAnalyses  AtsAnalysis[]
+  comparisons  ResumeComparison[]
+  aiMetrics    AIMetric[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Resume {
+  id               String       @id @default(uuid())
+  userId           String       @map("user_id")
+  title            String
+  originalFileName String       @map("original_file_name")
+  storagePath      String       @map("storage_path")
+  fileSize         Int?         @map("file_size")
+  mimeType         String?      @map("mime_type")
+  status           ResumeStatus @default(PENDING)
+
+  // Phase 3 metadata additions:
+  //   { embeddingModel, chunkCount, embeddedChunkCount, embeddedAt, embeddingSkipped }
+  metadata Json?
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content      ResumeContent?
+  parsedData   ParsedResume?
+  chunks       ResumeChunk[]
+  analyses     MatchAnalysis[]
+  atsAnalyses  AtsAnalysis[]
+  comparisonsA ResumeComparison[] @relation("ComparedAsA")
+  comparisonsB ResumeComparison[] @relation("ComparedAsB")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("resumes")
+}
+
+model ResumeContent {
+  id            String  @id @default(uuid())
+  resumeId      String  @unique @map("resume_id")
+  extractedText String  @db.Text @map("extracted_text")
+  wordCount     Int     @map("word_count")
+  pageCount     Int?    @map("page_count")
+  // Phase 3: populated after chunkResume() runs
+  // Schema: [{ index, type, charStart, charEnd }]
+  chunkBoundaries Json? @map("chunk_boundaries")
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("resume_contents")
+}
+
+model ParsedResume {
+  id       String @id @default(uuid())
+  resumeId String @unique @map("resume_id")
+
+  candidateName String? @map("candidate_name")
+  email         String?
+  phone         String?
+
+  skills         Json @default("[]")
+  education      Json @default("[]")
+  experience     Json @default("[]")
+  projects       Json @default("[]")
+  certifications Json @default("[]")
+
+  confidenceScore Float  @default(0) @map("confidence_score")
+  parserVersion   String @default("2.0.0") @map("parser_version")
+  rawOutput       Json?  @map("raw_output")
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([parserVersion])
+  @@map("parsed_resumes")
+}
+
+// ─── ResumeChunk ──────────────────────────────────────────────────────────────
+//
+// One row per semantic section of a resume (SKILLS, EXPERIENCE entry, PROJECT, etc.)
+//
+// Design decisions:
+//   - Granular chunks (one per job entry, one per project) give higher retrieval
+//     precision than a single "experience" chunk that mixes 5 companies together.
+//   - FULL chunk (first 500 words) enables whole-resume similarity without needing
+//     to aggregate across chunk types.
+//   - embedding column uses pgvector's `vector(1536)` type; Prisma treats it as
+//     Unsupported and ignores it in codegen. All reads/writes go through raw SQL.
+//   - embeddedAt IS NULL = "pending embedding" — lets a background worker query
+//     `WHERE embedded_at IS NULL` to find unchunked resumes for batch processing.
+model ResumeChunk {
+  id            String    @id @default(uuid())
+  resumeId      String    @map("resume_id")
+  chunkIndex    Int       @map("chunk_index")
+  // HEADER | SUMMARY | SKILLS | EXPERIENCE | EDUCATION | PROJECT | CERTIFICATIONS | FULL
+  chunkType     String    @map("chunk_type")
+  content       String    @db.Text
+  wordCount     Int       @map("word_count")
+  // Conservative token estimate: wordCount × 1.35 (avoids expensive tiktoken at runtime)
+  tokenEstimate Int       @map("token_estimate")
+  // Per-chunk structured metadata (company, title, dates for EXPERIENCE; etc.)
+  metadata      Json      @default("{}")
+
+  embeddingModel String?   @map("embedding_model")
+  embeddedAt     DateTime? @map("embedded_at")
+
+  // pgvector vector column. Written via:
+  //   UPDATE resume_chunks SET embedding = $1::vector WHERE id = $2
+  // Queried via:
+  //   ORDER BY embedding <=> $1::vector
+  embedding Unsupported("vector(1536)")?
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([resumeId, chunkIndex])
+  @@index([resumeId])
+  @@index([chunkType])
+  // Critical: lets a worker find unembedded chunks without a full table scan
+  @@index([embeddedAt])
+  @@map("resume_chunks")
+}
+
+// ─── JobChunk ─────────────────────────────────────────────────────────────────
+//
+// One row per semantic section of a job description.
+// Mirrors ResumeChunk so the same retrieval SQL works across both tables.
+model JobChunk {
+  id            String    @id @default(uuid())
+  jobId         String    @map("job_id")
+  chunkIndex    Int       @map("chunk_index")
+  // FULL | REQUIREMENTS | RESPONSIBILITIES | QUALIFICATIONS | ABOUT_COMPANY | GENERAL
+  chunkType     String    @map("chunk_type")
+  content       String    @db.Text
+  wordCount     Int       @map("word_count")
+  tokenEstimate Int       @map("token_estimate")
+  metadata      Json      @default("{}")
+
+  embeddingModel String?   @map("embedding_model")
+  embeddedAt     DateTime? @map("embedded_at")
+
+  embedding Unsupported("vector(1536)")?
+
+  job JobDescription @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([jobId, chunkIndex])
+  @@index([jobId])
+  @@index([chunkType])
+  @@index([embeddedAt])
+  @@map("job_chunks")
+}
+
+model JobDescription {
+  id      String  @id @default(uuid())
+  userId  String  @map("user_id")
+  title   String
+  company String?
+  content String  @db.Text
+
+  // Phase 3: { embeddingModel, chunkCount, embeddedChunkCount, embeddingSkipped }
+  metadata Json?
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks   JobChunk[]
+  analyses MatchAnalysis[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("job_descriptions")
+}
+
+// ─── MatchAnalysis ────────────────────────────────────────────────────────────
+//
+// Stores every resume ↔ job analysis result.
+//
+// Design decisions:
+//   - Scores are stored as scalar Float columns (not inside a JSON blob) so
+//     Prisma can `orderBy: { overallScore: 'desc' }` for ranking queries.
+//   - Lists (skills, strengths) are JSON arrays for schema flexibility across
+//     scoring versions without needing migrations.
+//   - `scoringVersion` lets the ranking service detect stale analyses when the
+//     scoring algorithm changes — same concept as `parserVersion` on ParsedResume.
+//   - `embeddingsUsed` = false means scores are approximate (fallback keyword mode);
+//     the UI can show a "limited accuracy" badge.
+//   - No unique constraint on (resumeId, jobId) — history is intentional.
+//     Re-analyses after resume updates improve rankings without losing prior snapshots.
+
+model MatchAnalysis {
+  id       String @id @default(uuid())
+  userId   String @map("user_id")
+  resumeId String @map("resume_id")
+  jobId    String @map("job_id")
+
+  // ATS component scores — each in [0, 100]
+  overallScore    Float @map("overall_score")
+  skillScore      Float @map("skill_score")
+  experienceScore Float @map("experience_score")
+  educationScore  Float @map("education_score")
+  keywordScore    Float @map("keyword_score")
+  semanticScore   Float @map("semantic_score")
+
+  // Skill gap analysis
+  matchingSkills         Json @default("[]") @map("matching_skills")
+  missingRequiredSkills  Json @default("[]") @map("missing_required_skills")
+  missingPreferredSkills Json @default("[]") @map("missing_preferred_skills")
+
+  // Top resume sections ranked by relevance to this job
+  strengths Json @default("[]")
+
+  // Keyword coverage: { covered: string[], missing: string[], coverageRate: number }
+  keywordCoverage Json @default("{}") @map("keyword_coverage")
+
+  // Metadata
+  scoringVersion String  @default("4.0.0") @map("scoring_version")
+  // false = embeddings unavailable; scores computed via keyword fallback
+  embeddingsUsed Boolean @default(false)   @map("embeddings_used")
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume Resume         @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  job    JobDescription @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Most common query: "latest analyses for this user, sorted by score"
+  @@index([userId, createdAt(sort: Desc)])
+  // For cache lookup: "most recent analysis for resume+job pair"
+  @@index([resumeId, jobId, createdAt(sort: Desc)])
+  // For ranking: "all analyses for this resume ordered by score"
+  @@index([resumeId, overallScore(sort: Desc)])
+  @@map("match_analyses")
+}
+
+// ─── AIMetric ─────────────────────────────────────────────────────────────────
+//
+// One row per LLM request (hit or miss from cache).
+// Phase 6: aggregate into a Grafana/Metabase dashboard.
+// Phase 6: partition by month for cheap time-series queries.
+
+model AIMetric {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  endpoint         String   // 'improve-resume' | 'roadmap' | 'interview-prep' | ...
+  provider         String   // 'openai' | 'gemini' | 'groq'
+  model            String
+  promptTokens     Int      @default(0) @map("prompt_tokens")
+  completionTokens Int      @default(0) @map("completion_tokens")
+  totalTokens      Int      @default(0) @map("total_tokens")
+  latencyMs        Int      @map("latency_ms")
+  cached           Boolean  @default(false)
+  success          Boolean  @default(true)
+  errorMessage     String?  @map("error_message")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([endpoint, createdAt(sort: Desc)])
+  @@index([provider, model, createdAt(sort: Desc)])
+  @@map("ai_metrics")
+}
+
+// ─── AIResponseCache ──────────────────────────────────────────────────────────
+//
+// DB-backed cache for LLM responses. Keyed by SHA-256 of endpoint + input hash.
+// TTL enforced at application layer (check expiresAt before returning).
+// Phase 6: move to Redis for faster lookups and automatic TTL expiry.
+// Cleanup: run DELETE FROM ai_response_cache WHERE expires_at < NOW() daily.
+
+model AIResponseCache {
+  id        String   @id @default(uuid())
+  cacheKey  String   @unique @map("cache_key")
+  response  Json
+  endpoint  String
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("ai_response_cache")
+}
+
+// ─── AtsAnalysis ─────────────────────────────────────────────────────────────
+//
+// Persists a single run of explain_score() + simulate_recruiter() against a
+// stored resume.  Both engines are always executed together so the UI can show
+// the ATS breakdown and the recruiter simulation side-by-side without a second
+// round-trip.
+//
+// Design decisions:
+//   - overallScore is a Float column (not inside components JSON) so queries
+//     can ORDER BY overall_score DESC without parsing JSON.
+//   - recruiterDecision is a plain String ('Reject' | 'Maybe' | 'Shortlist')
+//     for the same reason — it's commonly used in WHERE filters.
+//   - fullComponents JSON is stored so the UI can render the per-component
+//     breakdown without re-running the engine.
+//   - jobDescription text is stored inline so the analysis is self-contained
+//     even if the original JD text is not persisted elsewhere.
+//   - No unique(resumeId, jobDescription) constraint — historical snapshots are
+//     intentional, just like MatchAnalysis above.
+
+model AtsAnalysis {
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  resumeId       String  @map("resume_id")
+  jobDescription String? @db.Text @map("job_description")
+
+  // Headline figures — indexed for fast leaderboard / filter queries
+  overallScore Float  @map("overall_score")
+  grade        String // 'A+' | 'A' | 'B+' | 'B' | 'C' | 'D' | 'F'
+
+  // Full explain_score() output
+  components       Json @default("[]")
+  strengths        Json @default("[]")
+  improvementAreas Json @default("[]") @map("improvement_areas")
+  summary          String @db.Text
+
+  // simulate_recruiter() output — always run alongside ATS scoring
+  shortlistProbability Int    @map("shortlist_probability")
+  recruiterDecision    String @map("recruiter_decision") // 'Reject' | 'Maybe' | 'Shortlist'
+  topRedFlags          Json   @default("[]") @map("top_red_flags")
+  topStrengths         Json   @default("[]") @map("top_strengths")
+  missingRequirements  Json   @default("[]") @map("missing_requirements")
+  recruiterNotes       String @db.Text @map("recruiter_notes")
+
+  scoringVersion String @default("1.0.0") @map("scoring_version")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt(sort: Desc)])   // "my recent analyses"
+  @@index([resumeId, createdAt(sort: Desc)]) // "history for this resume"
+  @@index([overallScore(sort: Desc)])        // leaderboard / ranking
+  @@map("ats_analyses")
+}
+
+// ─── ResumeComparison ─────────────────────────────────────────────────────────
+//
+// Persists a single run of compare_resumes() for two stored resumes.
+//
+// Design decisions:
+//   - resumeAId / resumeBId are FK to Resume so cascade delete works correctly.
+//   - improvementScoreDelta is an Int (rounded from Float) to keep filtering simple.
+//   - Scalar flags (isMeaningfulUpgrade, hasRegressions) are Boolean columns so
+//     the history query can filter "show only meaningful upgrades" efficiently.
+//   - fullResult stores the complete ResumeComparisonResult JSON for the
+//     detail view; the scalar columns cover the list/filter use-cases.
+
+model ResumeComparison {
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  resumeAId      String  @map("resume_a_id")
+  resumeBId      String  @map("resume_b_id")
+  jobDescription String? @db.Text @map("job_description")
+
+  improvementScoreDelta Int     @map("improvement_score_delta")
+  addedSkills           Json    @default("[]") @map("added_skills")
+  removedSkills         Json    @default("[]") @map("removed_skills")
+  improvedSections      Json    @default("[]") @map("improved_sections")
+  atsScoreChange        Int     @map("ats_score_change")
+  isMeaningfulUpgrade   Boolean @default(false) @map("is_meaningful_upgrade")
+  hasRegressions        Boolean @default(false) @map("has_regressions")
+  explanation           String  @db.Text
+  recruiterSummary      String  @db.Text @map("recruiter_summary")
+
+  fullResult Json @map("full_result")
+
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resumeA Resume @relation("ComparedAsA", fields: [resumeAId], references: [id], onDelete: Cascade)
+  resumeB Resume @relation("ComparedAsB", fields: [resumeBId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([resumeAId])
+  @@index([resumeBId])
+  @@map("resume_comparisons")
+}
