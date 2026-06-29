@@ -2,10 +2,10 @@ import nodemailer from 'nodemailer';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
-export type EmailMode = 'brevo' | 'smtp' | 'ethereal';
+export type EmailMode = 'resend' | 'smtp' | 'ethereal';
 
 export function getEmailMode(): EmailMode {
-  if (env.BREVO_API_KEY) return 'brevo';
+  if (env.RESEND_API_KEY) return 'resend';
   if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) return 'smtp';
   return 'ethereal';
 }
@@ -37,36 +37,34 @@ export function getSmtpTransporter(): nodemailer.Transporter {
   return _smtpTransporter;
 }
 
-// ── Brevo HTTP API sender ──────────────────────────────────────────────────────
+// ── Resend HTTP API sender ─────────────────────────────────────────────────────
 // Uses HTTPS (port 443) — works on all hosting tiers including Render free plan.
+// From address uses onboarding@resend.dev (no domain verification required).
 
-async function sendViaBrevo(opts: {
+async function sendViaResend(opts: {
   to: string;
   subject: string;
   html: string;
   text: string;
 }): Promise<void> {
-  const senderEmail = env.SMTP_FROM ?? env.SMTP_USER ?? 'noreply@resumora.app';
-
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      'api-key': env.BREVO_API_KEY!,
+      'Authorization': `Bearer ${env.RESEND_API_KEY!}`,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
     },
     body: JSON.stringify({
-      sender: { name: 'Resumora', email: senderEmail },
-      to: [{ email: opts.to }],
+      from: 'Resumora <onboarding@resend.dev>',
+      to: [opts.to],
       subject: opts.subject,
-      htmlContent: opts.html,
-      textContent: opts.text,
+      html: opts.html,
+      text: opts.text,
     }),
   });
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Brevo API error ${res.status}: ${body}`);
+    throw new Error(`Resend API error ${res.status}: ${body}`);
   }
 }
 
@@ -120,10 +118,10 @@ export async function sendEmail(opts: {
 }): Promise<string | undefined> {
   const mode = getEmailMode();
 
-  if (mode === 'brevo') {
-    logger.info({ to: opts.to }, 'Sending email via Brevo HTTP API');
-    await sendViaBrevo(opts);
-    logger.info({ to: opts.to }, 'Email delivered via Brevo');
+  if (mode === 'resend') {
+    logger.info({ to: opts.to }, 'Sending email via Resend HTTP API');
+    await sendViaResend(opts);
+    logger.info({ to: opts.to }, 'Email delivered via Resend');
     return undefined;
   }
 
@@ -218,8 +216,8 @@ export function buildEmailHtml(cardContent: string): string {
 export async function verifyEmailSetup(): Promise<boolean> {
   const mode = getEmailMode();
 
-  if (mode === 'brevo') {
-    logger.info('Email mode: Brevo HTTP API — emails will be delivered via api.brevo.com');
+  if (mode === 'resend') {
+    logger.info('Email mode: Resend HTTP API — emails will be delivered via api.resend.com');
     return true;
   }
 

@@ -159,8 +159,8 @@ const envSchema = z.object({
   // ─── Email / Password Reset ───────────────────────────────────────────────
   // All optional. When absent, reset URLs are logged to the console (dev mode).
   APP_URL: z.string().optional(),          // e.g. https://resumora.app
-  // Brevo HTTP API (preferred — works on all hosting tiers, no SMTP port needed)
-  BREVO_API_KEY: z.string().optional(),    // from app.brevo.com → API Keys
+  // Resend HTTP API (preferred — works on all hosting tiers, no SMTP port needed)
+  RESEND_API_KEY: z.string().optional(),   // from resend.com → API Keys
   // SMTP fallback (only used when BREVO_API_KEY is not set)
   SMTP_HOST: z.string().optional(),        // e.g. smtp.sendgrid.net
   SMTP_PORT: z.string().default('587').transform((v) => parseInt(v, 10)),
@@ -194,13 +194,13 @@ if (parsed.data.NODE_ENV === 'production' && parsed.data.CORS_ORIGIN === '*') {
 // In production the password-reset feature requires real SMTP — the Ethereal
 // development fallback sends to a test sandbox nobody can access.
 if (parsed.data.NODE_ENV === 'production') {
-  const hasBrevo = !!parsed.data.BREVO_API_KEY;
-  const hasSmtp  = !!(parsed.data.SMTP_HOST && parsed.data.SMTP_USER && parsed.data.SMTP_PASS);
+  const hasResend = !!parsed.data.RESEND_API_KEY;
+  const hasSmtp   = !!(parsed.data.SMTP_HOST && parsed.data.SMTP_USER && parsed.data.SMTP_PASS);
 
-  if (!hasBrevo && !hasSmtp) {
+  if (!hasResend && !hasSmtp) {
     console.error(
       '❌ No email provider configured for production.\n' +
-      '   Set BREVO_API_KEY (recommended) or SMTP_HOST + SMTP_USER + SMTP_PASS.\n' +
+      '   Set RESEND_API_KEY (recommended) or SMTP_HOST + SMTP_USER + SMTP_PASS.\n' +
       '   Without email, password reset and verification emails cannot be delivered.',
     );
     process.exit(1);
