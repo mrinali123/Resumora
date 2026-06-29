@@ -159,11 +159,14 @@ const envSchema = z.object({
   // ─── Email / Password Reset ───────────────────────────────────────────────
   // All optional. When absent, reset URLs are logged to the console (dev mode).
   APP_URL: z.string().optional(),          // e.g. https://resumora.app
+  // Brevo HTTP API (preferred — works on all hosting tiers, no SMTP port needed)
+  BREVO_API_KEY: z.string().optional(),    // from app.brevo.com → API Keys
+  // SMTP fallback (only used when BREVO_API_KEY is not set)
   SMTP_HOST: z.string().optional(),        // e.g. smtp.sendgrid.net
   SMTP_PORT: z.string().default('587').transform((v) => parseInt(v, 10)),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().optional(),        // e.g. "Resumora" <noreply@resumora.app>
+  SMTP_FROM: z.string().optional(),        // e.g. noreply@resumora.app
 
   // Phase 7+
   // S3_BUCKET: z.string().optional(),
@@ -191,18 +194,20 @@ if (parsed.data.NODE_ENV === 'production' && parsed.data.CORS_ORIGIN === '*') {
 // In production the password-reset feature requires real SMTP — the Ethereal
 // development fallback sends to a test sandbox nobody can access.
 if (parsed.data.NODE_ENV === 'production') {
-  const missingSmtp: string[] = [];
-  if (!parsed.data.SMTP_HOST) missingSmtp.push('SMTP_HOST');
-  if (!parsed.data.SMTP_USER) missingSmtp.push('SMTP_USER');
-  if (!parsed.data.SMTP_PASS) missingSmtp.push('SMTP_PASS');
-  if (!parsed.data.APP_URL)   missingSmtp.push('APP_URL');
+  const hasBrevo = !!parsed.data.BREVO_API_KEY;
+  const hasSmtp  = !!(parsed.data.SMTP_HOST && parsed.data.SMTP_USER && parsed.data.SMTP_PASS);
 
-  if (missingSmtp.length > 0) {
+  if (!hasBrevo && !hasSmtp) {
     console.error(
-      `❌ Missing required environment variables for production email delivery: ${missingSmtp.join(', ')}.\n` +
-      '   Password reset emails cannot be delivered without a configured SMTP provider.\n' +
-      '   Set these variables or the server will refuse to start.',
+      '❌ No email provider configured for production.\n' +
+      '   Set BREVO_API_KEY (recommended) or SMTP_HOST + SMTP_USER + SMTP_PASS.\n' +
+      '   Without email, password reset and verification emails cannot be delivered.',
     );
+    process.exit(1);
+  }
+
+  if (!parsed.data.APP_URL) {
+    console.error('❌ APP_URL must be set in production (e.g. https://resumora-cloe.onrender.com).');
     process.exit(1);
   }
 }

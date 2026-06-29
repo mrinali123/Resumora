@@ -1,17 +1,9 @@
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { BadRequestError } from '../utils/errors';
-import {
-  getEmailMode,
-  getSmtpTransporter,
-  getFromAddress,
-  getReplyToAddress,
-  buildEmailHtml,
-  buildEmailText,
-} from '../config/email';
+import { sendEmail, buildEmailHtml, buildEmailText } from '../config/email';
 import bcrypt from 'bcryptjs';
 
 // ── Email templates ─────────────────────────────────────────────────────────────
@@ -72,108 +64,13 @@ function buildPasswordResetEmailHtml(resetUrl: string): string {
 // Throws on any delivery failure — callers must NOT swallow this.
 
 async function sendResetEmail(to: string, resetUrl: string): Promise<string | undefined> {
-  const subject = 'Reset your Resumora password';
-  const html = buildPasswordResetEmailHtml(resetUrl);
-  const text = buildPasswordResetEmailText(resetUrl);
-  const mode = getEmailMode();
-
-  // ── SMTP path (real email delivery) ───────────────────────────────────────────
-  if (mode === 'smtp') {
-    logger.info(
-      { to, host: env.SMTP_HOST, port: env.SMTP_PORT },
-      'Sending password reset email via SMTP',
-    );
-    try {
-      await getSmtpTransporter().sendMail({
-        from: getFromAddress(),
-        replyTo: getReplyToAddress(),
-        to,
-        subject,
-        text,
-        html,
-      });
-      logger.info({ to }, 'Password reset email delivered');
-      return undefined;
-    } catch (smtpErr) {
-      // SMTP is configured but delivery failed — throw immediately.
-      // Do NOT fall through to Ethereal: that would silently route a real user's
-      // reset email to a test inbox nobody can access.
-      logger.error(
-        { err: smtpErr, to, host: env.SMTP_HOST, port: env.SMTP_PORT },
-        'SMTP delivery failed',
-      );
-      throw new Error(
-        `Password reset email could not be delivered via SMTP (${env.SMTP_HOST}:${env.SMTP_PORT}). ` +
-        'Verify SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM in your environment.',
-      );
-    }
-  }
-
-  // ── Ethereal path (development fallback — no SMTP configured) ─────────────────
-  // Ethereal is a fake SMTP server for local development. It captures the email
-  // and returns a browser preview URL. The recipient never receives a real email.
-  logger.warn(
-    { to },
-    '[DEV] No SMTP configured — routing password reset email to Ethereal sandbox. ' +
-    'This email will NOT be delivered to the real inbox.',
-  );
-
-  let etherealErr: unknown;
-  try {
-    const testAccount = await nodemailer.createTestAccount();
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
-      auth: { user: testAccount.user, pass: testAccount.pass },
-    });
-    const info = await transporter.sendMail({
-      from: '"Resumora" <noreply@resumora.app>',
-      to,
-      subject,
-      text,
-      html,
-    });
-    const previewUrl = nodemailer.getTestMessageUrl(info) || undefined;
-    logger.info({ to, previewUrl }, '[DEV] Email captured in Ethereal sandbox');
-    console.log(
-      '\n' +
-      '  ┌──────────────────────────────────────────────────────────────────────\n' +
-      '  │  Resumora — Password Reset (Ethereal Dev Preview)\n' +
-      '  │\n' +
-      `  │  To          : ${to}\n` +
-      `  │  Preview URL : ${previewUrl ?? '(unavailable)'}\n` +
-      `  │  Reset URL   : ${resetUrl}\n` +
-      '  │\n' +
-      '  │  Open the Preview URL in your browser to see the styled email.\n' +
-      '  │  devPreviewUrl is also returned in the API response body.\n' +
-      '  │\n' +
-      '  │  To send real emails, configure SMTP in .env:\n' +
-      '  │    SMTP_HOST=smtp.gmail.com\n' +
-      '  │    SMTP_PORT=587\n' +
-      '  │    SMTP_USER=you@gmail.com\n' +
-      '  │    SMTP_PASS=xxxx-xxxx-xxxx-xxxx   ← Gmail App Password\n' +
-      '  └──────────────────────────────────────────────────────────────────────\n',
-    );
-    return previewUrl;
-  } catch (err) {
-    etherealErr = err;
-    logger.error({ err, to }, '[DEV] Ethereal delivery failed');
-  }
-
-  // ── Complete failure ───────────────────────────────────────────────────────────
-  logger.error(
-    { to, resetUrl },
-    'All email delivery methods failed. Configure SMTP or restore internet access.',
-  );
-  console.error(
-    `\n  ✗ Email delivery failed. Manual reset URL for ${to}:\n  ${resetUrl}\n`,
-  );
-  throw new Error(
-    'Unable to send the password reset email. ' +
-    'Configure SMTP (SMTP_HOST / SMTP_USER / SMTP_PASS) or restore internet access for Ethereal. ' +
-    `Cause: ${(etherealErr as Error)?.message ?? 'unknown'}`,
-  );
+  const devPreviewUrl = await sendEmail({
+    to,
+    subject: 'Reset your Resumora password',
+    html: buildPasswordResetEmailHtml(resetUrl),
+    text: buildPasswordResetEmailText(resetUrl),
+  });
+  return devPreviewUrl;
 }
 
 // ── Token helpers ──────────────────────────────────────────────────────────────

@@ -1,17 +1,9 @@
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { BadRequestError } from '../utils/errors';
-import {
-  getEmailMode,
-  getSmtpTransporter,
-  getFromAddress,
-  getReplyToAddress,
-  buildEmailHtml,
-  buildEmailText,
-} from '../config/email';
+import { sendEmail, buildEmailHtml, buildEmailText } from '../config/email';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -76,76 +68,12 @@ async function sendVerificationEmail(
   firstName: string,
   verifyUrl: string,
 ): Promise<string | undefined> {
-  const subject = 'Verify your Resumora email address';
-  const html = buildVerificationEmailHtml(verifyUrl, firstName);
-  const text = buildVerificationEmailText(verifyUrl, firstName);
-  const mode = getEmailMode();
-
-  if (mode === 'smtp') {
-    logger.info({ to }, 'Sending verification email via SMTP');
-    try {
-      await getSmtpTransporter().sendMail({
-        from: getFromAddress(),
-        replyTo: getReplyToAddress(),
-        to,
-        subject,
-        text,
-        html,
-      });
-      logger.info({ to }, 'Verification email delivered');
-      return undefined;
-    } catch (smtpErr) {
-      logger.error({ err: smtpErr, to }, 'SMTP verification email delivery failed');
-      throw new Error(
-        'Failed to send verification email via SMTP. ' +
-        'Verify SMTP credentials in your environment.',
-      );
-    }
-  }
-
-  logger.warn({ to }, '[DEV] No SMTP — sending verification email to Ethereal sandbox');
-
-  let etherealErr: unknown;
-  try {
-    const testAccount = await nodemailer.createTestAccount();
-    const transporter = nodemailer.createTransport({
-      host: 'smtp.ethereal.email', port: 587, secure: false,
-      auth: { user: testAccount.user, pass: testAccount.pass },
-    });
-    const info = await transporter.sendMail({
-      from: '"Resumora" <noreply@resumora.app>',
-      to,
-      subject,
-      text,
-      html,
-    });
-    const previewUrl = nodemailer.getTestMessageUrl(info) || undefined;
-    logger.info({ to, previewUrl }, '[DEV] Verification email sent to Ethereal sandbox');
-    console.log(
-      '\n' +
-      '  ┌──────────────────────────────────────────────────────────────────────\n' +
-      '  │  Resumora — Email Verification (Ethereal Dev Preview)\n' +
-      '  │\n' +
-      `  │  To          : ${to}\n` +
-      `  │  Preview URL : ${previewUrl ?? '(unavailable)'}\n` +
-      `  │  Verify URL  : ${verifyUrl}\n` +
-      '  │\n' +
-      '  │  Open the Preview URL or click the Verify URL directly to verify.\n' +
-      '  │  devPreviewUrl is also returned in the API response.\n' +
-      '  └──────────────────────────────────────────────────────────────────────\n',
-    );
-    return previewUrl;
-  } catch (err) {
-    etherealErr = err;
-    logger.error({ err, to }, '[DEV] Ethereal verification email delivery failed');
-  }
-
-  logger.error({ to, verifyUrl }, 'All verification email delivery methods failed');
-  console.error(`\n  ✗ Verification email failed. Verify URL for ${to}: ${verifyUrl}\n`);
-  throw new Error(
-    'Unable to send verification email. Configure SMTP or restore internet access. ' +
-    `Cause: ${(etherealErr as Error)?.message ?? 'unknown'}`,
-  );
+  return sendEmail({
+    to,
+    subject: 'Verify your Resumora email address',
+    html: buildVerificationEmailHtml(verifyUrl, firstName),
+    text: buildVerificationEmailText(verifyUrl, firstName),
+  });
 }
 
 // ── Token helpers ──────────────────────────────────────────────────────────────
