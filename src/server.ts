@@ -27,10 +27,6 @@ const startServer = async (): Promise<void> => {
     logger.warn('Skipping BullMQ workers — Redis not available');
   }
 
-  // Email is non-critical for startup but we verify it early so misconfigurations
-  // are caught before any user request is processed, not on the first reset attempt.
-  await verifyEmailSetup();
-
   // ── HTTP server ─────────────────────────────────────────────────────────────
   const server = app.listen(env.PORT, () => {
     logger.info(
@@ -38,6 +34,12 @@ const startServer = async (): Promise<void> => {
       'Server is listening',
     );
   });
+
+  // Email verification is non-critical and potentially slow (SMTP handshake).
+  // Run it after the server is already listening so port binding is never blocked.
+  verifyEmailSetup().catch((err) =>
+    logger.error({ err }, 'Email setup verification threw unexpectedly'),
+  );
 
   // ── Graceful shutdown ───────────────────────────────────────────────────────
   // Sequence: stop accepting connections → drain in-flight requests →
