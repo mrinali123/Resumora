@@ -1,9 +1,11 @@
+import http from 'http';
 import app from './app';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { prisma } from './config/database';
 import { connectRedis, disconnectRedis, setRedisAvailable } from './config/redis';
 import { verifyEmailSetup } from './config/email';
+import { initSocketIO } from './config/socket';
 import { closeQueues } from './queue/queues';
 import { startWorkers, stopWorkers } from './queue/worker-manager';
 
@@ -28,7 +30,10 @@ const startServer = async (): Promise<void> => {
   }
 
   // ── HTTP server ─────────────────────────────────────────────────────────────
-  const server = app.listen(env.PORT, () => {
+  const httpServer = http.createServer(app);
+  initSocketIO(httpServer);
+
+  const server = httpServer.listen(env.PORT, () => {
     logger.info(
       { port: env.PORT, env: env.NODE_ENV, pid: process.pid },
       'Server is listening',

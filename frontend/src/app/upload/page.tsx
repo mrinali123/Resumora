@@ -5,6 +5,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Upload, FileText, CheckCircle, Loader2, AlertCircle, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api-client";
+import { connectSocket, disconnectSocket } from "@/lib/socket";
 import { formatBytes } from "@/lib/utils";
 
 type UploadState = "idle" | "drag" | "uploading" | "polling" | "done" | "error";
@@ -41,6 +42,7 @@ export default function UploadPage() {
   const [statusMsg, setStatusMsg] = useState("Uploading…");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [resumeId, setResumeId] = useState<string | null>(null);
+  const [usingSocket, setUsingSocket] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pollCountRef = useRef(0);
 
@@ -51,6 +53,11 @@ export default function UploadPage() {
     return () => clearTimeout(t);
   }, [state, router]);
 
+  // Disconnect socket when leaving page or on cleanup
+  useEffect(() => {
+    return () => { disconnectSocket(); };
+  }, []);
+
   const pollJob = useCallback(async (jobId: string) => {
     pollCountRef.current = 0;
 
@@ -60,7 +67,6 @@ export default function UploadPage() {
 
       try {
         const status = await api.jobs.status(jobId);
-        // Map raw progress (0–100) into the 30–95 visual band
         const visual = 30 + Math.round((status.progress / 100) * 65);
         setProgress(Math.min(visual, 95));
 
@@ -85,7 +91,6 @@ export default function UploadPage() {
       }
     }
 
-    // Timed out — resume may still be processing in the background
     setState("error");
     setErrorMsg(
       "Processing is taking longer than expected. " +
@@ -93,9 +98,72 @@ export default function UploadPage() {
     );
   }, []);
 
+  const listenViaSocket = useCallback((jobId: string, rid: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("resumora:token") : null;
+      if (!token) { reject(new Error("no token")); return; }
+
+      let settled = false;
+      const socket = connectSocket(token);
+
+      const cleanup = () => {
+        socket.off("resume:progress");
+        socket.off("resume:complete");
+        socket.off("resume:error");
+        socket.off("connect_error");
+      };
+
+      // Fallback timeout: if socket doesn't emit within 10s, fall back to polling
+      const fallbackTimer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(new Error("socket_timeout"));
+        }
+      }, 10_000);
+
+      socket.on("connect_error", () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(fallbackTimer);
+          cleanup();
+          reject(new Error("socket_timeout"));
+        }
+      });
+
+      socket.on("resume:progress", (data: { jobId: string; resumeId: string; progress: number; message: string }) => {
+        if (data.jobId !== jobId && data.resumeId !== rid) return;
+        clearTimeout(fallbackTimer);
+        setUsingSocket(true);
+        const visual = 30 + Math.round((data.progress / 100) * 65);
+        setProgress(Math.min(visual, 95));
+        setStatusMsg(data.message || "Processing…");
+      });
+
+      socket.on("resume:complete", (data: { jobId: string; resumeId: string }) => {
+        if (data.jobId !== jobId && data.resumeId !== rid) return;
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        cleanup();
+        setProgress(100);
+        setStatusMsg("Complete!");
+        resolve();
+      });
+
+      socket.on("resume:error", (data: { jobId: string; resumeId: string; message: string }) => {
+        if (data.jobId !== jobId && data.resumeId !== rid) return;
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        cleanup();
+        reject(new Error(data.message ?? "Processing failed on the server."));
+      });
+    });
+  }, []);
+
   const handleFile = useCallback(
     async (f: File) => {
-      // Client-side validation — must match backend ALLOWED_MIME_TYPES exactly
       if (!ALLOWED_TYPES[f.type]) {
         setState("error");
         const ext = f.name.split(".").pop()?.toUpperCase() ?? "unknown";
@@ -112,22 +180,34 @@ export default function UploadPage() {
       setProgress(10);
       setStatusMsg("Uploading…");
       setErrorMsg(null);
+      setUsingSocket(false);
       pollCountRef.current = 0;
 
       try {
         const result = await api.resumes.upload(f);
-
-        // Both async (Redis) and sync (no Redis) paths now return { resumeId }
         setResumeId(result.resumeId ?? null);
         setProgress(30);
 
         if (result.jobId) {
-          // Async path: worker is processing — poll for completion
           setState("polling");
           setStatusMsg("Extracting text…");
-          await pollJob(result.jobId);
+
+          // Try WebSocket first, fall back to HTTP polling on timeout/error
+          try {
+            await listenViaSocket(result.jobId, result.resumeId ?? "");
+            setState("done");
+          } catch (socketErr) {
+            const msg = (socketErr as Error).message;
+            if (msg === "socket_timeout") {
+              // WebSocket unavailable — fall back to polling silently
+              setUsingSocket(false);
+              await pollJob(result.jobId);
+            } else {
+              throw socketErr;
+            }
+          }
         } else {
-          // Sync path: pipeline already ran inline — upload is complete
+          // Sync path: pipeline already ran inline
           setProgress(100);
           setStatusMsg("Complete!");
           setState("done");
@@ -137,7 +217,7 @@ export default function UploadPage() {
         setErrorMsg(friendlyUploadError(err));
       }
     },
-    [pollJob],
+    [pollJob, listenViaSocket],
   );
 
   const onDrop = useCallback(
@@ -151,12 +231,14 @@ export default function UploadPage() {
   );
 
   const reset = () => {
+    disconnectSocket();
     setState("idle");
     setFile(null);
     setProgress(0);
     setStatusMsg("Uploading…");
     setErrorMsg(null);
     setResumeId(null);
+    setUsingSocket(false);
     pollCountRef.current = 0;
     if (inputRef.current) inputRef.current.value = "";
   };
@@ -184,7 +266,6 @@ export default function UploadPage() {
           <div
             onDragOver={(e) => { e.preventDefault(); setState("drag"); }}
             onDragLeave={(e) => {
-              // Only reset if leaving the zone itself, not a child element
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                 setState((prev) => prev === "drag" ? "idle" : prev);
               }
@@ -271,6 +352,9 @@ export default function UploadPage() {
                 </p>
                 <p style={{ fontSize: "11px", color: "var(--ink-3)", marginTop: "2px" }}>
                   {formatBytes(file.size)}
+                  {usingSocket && (
+                    <span style={{ color: "var(--success)", marginLeft: "6px" }}>· live</span>
+                  )}
                 </p>
               </div>
               <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: "var(--accent)" }} />
@@ -347,7 +431,6 @@ export default function UploadPage() {
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) handleFile(f);
-            // Clear so same file can be re-selected after an error
             e.target.value = "";
           }}
         />

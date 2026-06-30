@@ -9,6 +9,7 @@ import {
   FileText,
   RefreshCw,
   ChevronDown,
+  Download,
 } from "lucide-react";
 import {
   api,
@@ -17,6 +18,7 @@ import {
   type AtsAnalysisSummary,
 } from "@/lib/api-client";
 import { getScoreColor, getScoreLabel, formatDate, formatRelative } from "@/lib/utils";
+import { exportAtsPdf } from "@/lib/export-pdf";
 
 // ── Score ring ────────────────────────────────────────────────────────────────
 function ScoreRing({ score }: { score: number }) {
@@ -127,7 +129,7 @@ function PastItem({ item, onClick }: { item: AtsAnalysisSummary; onClick: () => 
 }
 
 // ── Result display ────────────────────────────────────────────────────────────
-function AnalysisDisplay({ data }: { data: AtsAnalysisResult }) {
+function AnalysisDisplay({ data, resumeName }: { data: AtsAnalysisResult; resumeName: string }) {
   const components = data.components ?? [];
 
   const matchedKeywords: string[] = [];
@@ -147,6 +149,17 @@ function AnalysisDisplay({ data }: { data: AtsAnalysisResult }) {
   const decisionCls =
     data.overallScore >= 80 ? "badge-success" : data.overallScore >= 60 ? "badge-warning" : "badge-danger";
 
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportAtsPdf(data, resumeName);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -159,6 +172,19 @@ function AnalysisDisplay({ data }: { data: AtsAnalysisResult }) {
             <div className="mt-2">
               <span className={`badge ${decisionCls}`}>{data.recruiter.decision}</span>
             </div>
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="btn btn-ghost mt-1"
+              style={{ height: "30px", fontSize: "11px", paddingInline: "12px" }}
+            >
+              {exporting ? (
+                <Loader2 className="w-3 h-3 animate-spin mr-1.5" />
+              ) : (
+                <Download className="w-3 h-3 mr-1.5" />
+              )}
+              {exporting ? "Exporting…" : "Export PDF"}
+            </button>
           </div>
         </div>
 
@@ -468,7 +494,7 @@ export default function AnalysisPage() {
                     {pastAnalyses.length > 0 ? "History" : "Close"}
                   </button>
                 </div>
-                <AnalysisDisplay data={result} />
+                <AnalysisDisplay data={result} resumeName={selectedResume?.title || selectedResume?.originalFileName || "resume"} />
               </>
             )}
           </>

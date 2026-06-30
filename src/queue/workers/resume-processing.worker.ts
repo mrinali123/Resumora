@@ -27,6 +27,7 @@ import { jobTracker } from '../job-tracker';
 import { metricsService } from '../../metrics/metrics.service';
 import { QUEUES, JOB_NAMES } from '../jobs.types';
 import type { ProcessResumePayload, ProcessResumeResult } from '../jobs.types';
+import { emitToUser } from '../../config/socket';
 
 export function startResumeProcessingWorker(): Worker | null {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,6 +64,7 @@ export function startResumeProcessingWorker(): Worker | null {
             const scaled = Math.round(5 + (pct / 100) * 80);
             await job.updateProgress(scaled);
             await jobTracker.updateProgress(job.id!, scaled, step);
+            emitToUser(userId, 'resume:progress', { jobId: job.id, resumeId, progress: scaled, message: step });
           },
         );
 
@@ -79,6 +81,7 @@ export function startResumeProcessingWorker(): Worker | null {
         // the user isn't penalised for an analysis engine error.
         await job.updateProgress(88);
         await jobTracker.updateProgress(job.id!, 88, 'Running baseline ATS analysis');
+        emitToUser(userId, 'resume:progress', { jobId: job.id, resumeId, progress: 88, message: 'Running baseline ATS analysis' });
 
         const atsStart = Date.now();
         try {
@@ -118,6 +121,7 @@ export function startResumeProcessingWorker(): Worker | null {
         // ── Finalise job ──────────────────────────────────────────────────────
         await job.updateProgress(100);
         await jobTracker.updateProgress(job.id!, 100, 'Complete');
+        emitToUser(userId, 'resume:complete', { jobId: job.id, resumeId, progress: 100 });
 
         const jobResult: ProcessResumeResult = {
           resumeId: result.id,
@@ -140,6 +144,7 @@ export function startResumeProcessingWorker(): Worker | null {
         logger.error({ err, jobId: job.id, resumeId }, 'Resume processing failed');
         metricsService.increment('queue.resume_processing.failed');
         await jobTracker.markFailed(job.id!, reason);
+        emitToUser(userId, 'resume:error', { jobId: job.id, resumeId, message: reason });
 
         // _runPipeline already sets status = 'FAILED', but if the DB update
         // inside _runPipeline itself failed the resume stays PENDING. This
