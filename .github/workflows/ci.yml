@@ -60,7 +60,7 @@ jobs:
         run: npx prisma generate
 
       - name: Run unit tests
-        run: npx jest --testPathPattern="tests/unit" --coverage --coverageReporters=lcov,text
+        run: npx jest --testPathPatterns="tests/unit" --coverage --coverageReporters=lcov,text
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
@@ -89,7 +89,7 @@ jobs:
         run: npx prisma generate
 
       - name: Run integration tests
-        run: npx jest --testPathPattern="tests/integration"
+        run: npx jest --testPathPatterns="tests/integration"
 
   # ── Job 4: Build validation ────────────────────────────────────────────────
   build:

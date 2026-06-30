@@ -8,11 +8,25 @@ import app from '../../src/app';
 // ── Mock Prisma ────────────────────────────────────────────────────────────────
 // Each test can override these with jest.mocked(prisma).user.findUnique.mockResolvedValue(...)
 
+// Disable rate limiting so rapid test requests aren't blocked
+jest.mock('../../src/middleware/rate-limit.middleware', () => {
+  const pass = (_req: unknown, _res: unknown, next: () => void) => next();
+  return {
+    authRateLimit: pass,
+    aiRateLimit: pass,
+    uploadRateLimit: pass,
+    apiRateLimit: pass,
+    analyzeRateLimit: pass,
+    compareRateLimit: pass,
+  };
+});
+
 jest.mock('../../src/config/database', () => ({
   prisma: {
     user: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
   },
 }));
@@ -21,6 +35,17 @@ jest.mock('../../src/config/database', () => ({
 jest.mock('bcryptjs', () => ({
   hash: jest.fn().mockResolvedValue('hashed-password'),
   compare: jest.fn(),
+}));
+
+// Mock email so tests never attempt real network calls
+jest.mock('../../src/config/email', () => ({
+  sendEmail: jest.fn().mockResolvedValue(undefined),
+  getEmailMode: jest.fn().mockReturnValue('test'),
+  getFromAddress: jest.fn().mockReturnValue('"Resumora" <noreply@resumora.app>'),
+  getReplyToAddress: jest.fn().mockReturnValue('"Resumora" <noreply@resumora.app>'),
+  buildEmailHtml: jest.fn().mockReturnValue('<html></html>'),
+  buildEmailText: jest.fn().mockReturnValue('text'),
+  verifyEmailSetup: jest.fn().mockResolvedValue(true),
 }));
 
 import { prisma } from '../../src/config/database';
@@ -32,6 +57,11 @@ const mockUser = {
   password: 'hashed-password',
   firstName: 'Alice',
   lastName: 'Engineer',
+  emailVerified: true,
+  emailVerificationToken: null,
+  emailVerificationExpiry: null,
+  passwordResetToken: null,
+  passwordResetExpiry: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -43,9 +73,10 @@ beforeEach(() => {
 // ── Registration ───────────────────────────────────────────────────────────────
 
 describe('POST /api/v1/auth/register', () => {
-  it('creates an account and returns a JWT', async () => {
+  it('creates an account and sends a verification email', async () => {
     jest.mocked(prisma.user.findUnique).mockResolvedValue(null); // email not taken
     jest.mocked(prisma.user.create).mockResolvedValue(mockUser);
+    jest.mocked(prisma.user.update).mockResolvedValue(mockUser);
 
     const res = await request(app)
       .post('/api/v1/auth/register')
@@ -58,8 +89,7 @@ describe('POST /api/v1/auth/register', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toHaveProperty('token');
-    expect(res.body.data.user.email).toBe('test@example.com');
+    expect(res.body.data.requiresVerification).toBe(true);
   });
 
   it('rejects duplicate email', async () => {
