@@ -2,9 +2,10 @@ import nodemailer from 'nodemailer';
 import { env } from './env';
 import { logger } from '../utils/logger';
 
-export type EmailMode = 'resend' | 'smtp' | 'ethereal';
+export type EmailMode = 'mailjet' | 'resend' | 'smtp' | 'ethereal';
 
 export function getEmailMode(): EmailMode {
+  if (env.MAILJET_API_KEY && env.MAILJET_SECRET_KEY) return 'mailjet';
   if (env.RESEND_API_KEY) return 'resend';
   if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) return 'smtp';
   return 'ethereal';
@@ -35,6 +36,42 @@ export function getSmtpTransporter(): nodemailer.Transporter {
     tls: { rejectUnauthorized: env.NODE_ENV === 'production' },
   });
   return _smtpTransporter;
+}
+
+// ── Mailjet HTTP API sender ────────────────────────────────────────────────────
+// Uses HTTPS (port 443) — works on all hosting tiers including Render free plan.
+// Sender must be verified at app.mailjet.com → Account → Sender addresses.
+
+async function sendViaMailjet(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}): Promise<void> {
+  const senderEmail = env.SMTP_FROM ?? env.SMTP_USER ?? 'mrinaliparida17@gmail.com';
+  const credentials = Buffer.from(`${env.MAILJET_API_KEY}:${env.MAILJET_SECRET_KEY}`).toString('base64');
+
+  const res = await fetch('https://api.mailjet.com/v3.1/send', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      Messages: [{
+        From: { Email: senderEmail, Name: 'Resumora' },
+        To: [{ Email: opts.to }],
+        Subject: opts.subject,
+        HTMLPart: opts.html,
+        TextPart: opts.text,
+      }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Mailjet API error ${res.status}: ${body}`);
+  }
 }
 
 // ── Resend HTTP API sender ─────────────────────────────────────────────────────
@@ -117,6 +154,13 @@ export async function sendEmail(opts: {
   text: string;
 }): Promise<string | undefined> {
   const mode = getEmailMode();
+
+  if (mode === 'mailjet') {
+    logger.info({ to: opts.to }, 'Sending email via Mailjet HTTP API');
+    await sendViaMailjet(opts);
+    logger.info({ to: opts.to }, 'Email delivered via Mailjet');
+    return undefined;
+  }
 
   if (mode === 'resend') {
     logger.info({ to: opts.to }, 'Sending email via Resend HTTP API');
@@ -215,6 +259,11 @@ export function buildEmailHtml(cardContent: string): string {
 
 export async function verifyEmailSetup(): Promise<boolean> {
   const mode = getEmailMode();
+
+  if (mode === 'mailjet') {
+    logger.info('Email mode: Mailjet HTTP API — emails will be delivered via api.mailjet.com');
+    return true;
+  }
 
   if (mode === 'resend') {
     logger.info('Email mode: Resend HTTP API — emails will be delivered via api.resend.com');
