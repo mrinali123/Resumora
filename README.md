@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://resumora-pink.vercel.app"><strong>Live Demo →</strong></a>
   &nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="https://resumora-backend.onrender.com/api/docs"><strong>API Docs →</strong></a>
+  <a href="https://resumora-backend.onrender.com/health"><strong>Backend Health →</strong></a>
 </p>
 
 ---
@@ -36,8 +36,8 @@ Most resume tools are black boxes. Resumora is different: it gives candidates a 
 | Service | URL |
 |---|---|
 | **Frontend** | [resumora-pink.vercel.app](https://resumora-pink.vercel.app) |
-| **Backend API** | [resumora-backend.onrender.com](https://resumora-backend.onrender.com) |
-| **API Docs (Swagger)** | `/api/docs` in development |
+| **Backend API** | [resumora-backend.onrender.com/health](https://resumora-backend.onrender.com/health) |
+| **API Docs (Swagger)** | `http://localhost:3000/api/docs` (development only) |
 
 > The backend runs on Render's free tier — the first request may take ~30 s to wake the instance.
 
