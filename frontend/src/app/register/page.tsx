@@ -1,11 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Mail } from "lucide-react";
+import { GoogleLogin } from "@react-oauth/google";
 import { api, ApiError } from "@/lib/api-client";
+import { useAuth } from "@/context/auth-context";
 
 export default function RegisterPage() {
+  const { login } = useAuth();
+  const router = useRouter();
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
@@ -16,8 +21,24 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [isDuplicate, setIsDuplicate] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [devPreviewUrl, setDevPreviewUrl] = useState<string | null>(null);
+
+  const handleGoogleSuccess = async (credentialResponse: { credential?: string }) => {
+    if (!credentialResponse.credential) return;
+    setGoogleLoading(true);
+    setError(null);
+    try {
+      const result = await api.auth.google(credentialResponse.credential);
+      login(result.user, result.token);
+      router.push("/dashboard");
+    } catch (err) {
+      setError((err as Error).message ?? "Google sign-up failed. Please try again.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const set =
     (key: keyof typeof form) =>
@@ -272,13 +293,33 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || googleLoading}
             className="btn btn-primary w-full"
             style={{ height: "36px", marginTop: "4px", opacity: loading ? 0.7 : 1 }}
           >
             {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-5">
+          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+          <span className="caption">or</span>
+          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+        </div>
+
+        {/* Google sign-up */}
+        <div className="flex justify-center" style={{ opacity: googleLoading ? 0.6 : 1, pointerEvents: googleLoading ? "none" : undefined }}>
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => setError("Google sign-up was cancelled or failed.")}
+            theme="filled_black"
+            shape="rectangular"
+            size="large"
+            width="320"
+            text="continue_with"
+          />
+        </div>
 
         <p className="caption mt-6 text-center">
           Already have an account?{" "}

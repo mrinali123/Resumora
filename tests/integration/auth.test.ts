@@ -62,6 +62,7 @@ const mockUser = {
   emailVerificationExpiry: null,
   passwordResetToken: null,
   passwordResetExpiry: null,
+  googleId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

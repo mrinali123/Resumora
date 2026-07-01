@@ -156,6 +156,11 @@ const envSchema = z.object({
   RATE_LIMIT_API_MAX: z.string().default('100').transform((v) => parseInt(v, 10)),
   RATE_LIMIT_API_WINDOW_MIN: z.string().default('1').transform((v) => parseInt(v, 10)),
 
+  // ─── Google OAuth ─────────────────────────────────────────────────────────
+  // Set GOOGLE_CLIENT_ID from Google Cloud Console → APIs & Services → Credentials.
+  // Only the client ID is needed here — ID tokens are verified without the secret.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+
   // ─── Email / Password Reset ───────────────────────────────────────────────
   // All optional. When absent, reset URLs are logged to the console (dev mode).
   APP_URL: z.string().optional(),          // e.g. https://resumora.app

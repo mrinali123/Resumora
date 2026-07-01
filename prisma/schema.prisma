@@ -36,6 +36,9 @@ model User {
   passwordResetToken  String?   @map("password_reset_token")
   passwordResetExpiry DateTime? @map("password_reset_expiry")
 
+  // OAuth — null for email/password users
+  googleId String? @unique @map("google_id")
+
   resumes      Resume[]
   jobs         JobDescription[]
   analyses     MatchAnalysis[]

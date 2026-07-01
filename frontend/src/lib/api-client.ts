@@ -372,6 +372,12 @@ export const api = {
         method: 'DELETE',
         body: JSON.stringify({ password }),
       }),
+
+    google: (credential: string) =>
+      request<AuthResult>('/auth/google', {
+        method: 'POST',
+        body: JSON.stringify({ credential }),
+      }),
   },
 
   resumes: {
