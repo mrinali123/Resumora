@@ -7,6 +7,7 @@ import { Eye, EyeOff, Mail } from "lucide-react";
 import { GoogleLogin } from "@react-oauth/google";
 import { api, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/context/auth-context";
+import { googleEnabled } from "@/components/Providers";
 
 export default function RegisterPage() {
   const { login } = useAuth();
@@ -301,25 +302,27 @@ export default function RegisterPage() {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
-          <span className="caption">or</span>
-          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
-        </div>
-
-        {/* Google sign-up */}
-        <div className="flex justify-center" style={{ opacity: googleLoading ? 0.6 : 1, pointerEvents: googleLoading ? "none" : undefined }}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError("Google sign-up was cancelled or failed.")}
-            theme="filled_black"
-            shape="rectangular"
-            size="large"
-            width="320"
-            text="continue_with"
-          />
-        </div>
+        {/* Google sign-up — only rendered when NEXT_PUBLIC_GOOGLE_CLIENT_ID is configured */}
+        {googleEnabled && (
+          <>
+            <div className="flex items-center gap-3 my-5">
+              <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+              <span className="caption">or</span>
+              <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+            </div>
+            <div className="flex justify-center" style={{ opacity: googleLoading ? 0.6 : 1, pointerEvents: googleLoading ? "none" : undefined }}>
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError("Google sign-up was cancelled or failed.")}
+                theme="filled_black"
+                shape="rectangular"
+                size="large"
+                width="320"
+                text="continue_with"
+              />
+            </div>
+          </>
+        )}
 
         <p className="caption mt-6 text-center">
           Already have an account?{" "}
