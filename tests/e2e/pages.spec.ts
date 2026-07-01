@@ -26,9 +26,10 @@ test.describe('Public pages', () => {
 
   test('register page has correct fields', async ({ page }) => {
     await page.goto('/register');
-    await expect(page.getByRole('textbox', { name: /first name/i })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: /last name/i })).toBeVisible();
-    await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible();
+    // Use placeholder-based selectors since labels are not associated via htmlFor
+    await expect(page.locator('input[placeholder="First"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="Last"]')).toBeVisible();
+    await expect(page.locator('input[type="email"]')).toBeVisible();
   });
 
   test('verify-email page loads without crashing', async ({ page }) => {

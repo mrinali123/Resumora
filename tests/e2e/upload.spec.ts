@@ -4,13 +4,10 @@ import fs from 'fs';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function loginAs(page: import('@playwright/test').Page, email: string, password: string) {
-  await page.goto('/login');
-  await page.getByRole('textbox', { name: /email/i }).fill(email);
-  await page.getByLabel(/password/i).fill(password);
-  await page.getByRole('button', { name: /sign in|log in/i }).click();
-  // Wait for redirect away from login
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10_000 });
+async function waitForPageReady(page: import('@playwright/test').Page, route: string) {
+  await page.goto(route);
+  // Wait for client-side redirect to settle (auth check happens after hydration)
+  await page.waitForURL((url) => url.pathname === '/login' || url.pathname === route, { timeout: 8_000 });
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -18,14 +15,14 @@ async function loginAs(page: import('@playwright/test').Page, email: string, pas
 test.describe('Upload page', () => {
   test('upload page shows drop zone when not logged in redirect', async ({ page }) => {
     await page.goto('/upload');
-    // Either shows upload page or redirects to login
+    await page.waitForURL((url) => url.pathname === '/login' || url.pathname === '/upload', { timeout: 8_000 });
     const isLoginPage = page.url().includes('/login');
     const isUploadPage = page.url().includes('/upload');
     expect(isLoginPage || isUploadPage).toBe(true);
   });
 
   test('upload page has correct title and accepts PDF/DOCX', async ({ page }) => {
-    await page.goto('/upload');
+    await waitForPageReady(page, '/upload');
     if (page.url().includes('/login')) return; // skip if not authed
 
     await expect(page.getByText(/upload resume/i)).toBeVisible();
@@ -33,7 +30,7 @@ test.describe('Upload page', () => {
   });
 
   test('upload rejects invalid file type', async ({ page }) => {
-    await page.goto('/upload');
+    await waitForPageReady(page, '/upload');
     if (page.url().includes('/login')) return;
 
     // Create a temp txt file
