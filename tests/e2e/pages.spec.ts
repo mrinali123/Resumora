@@ -13,9 +13,13 @@ test.describe('Public pages', () => {
     });
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
-    // Filter out known third-party noise
+    // Filter out known noise: network errors (no backend in CI), favicon, Google scripts
     const realErrors = errors.filter(
-      (e) => !e.includes('net::ERR') && !e.includes('favicon'),
+      (e) =>
+        !e.includes('net::ERR') &&
+        !e.includes('favicon') &&
+        !e.includes('Failed to load resource') &&
+        !e.includes('accounts.google'),
     );
     expect(realErrors).toHaveLength(0);
   });

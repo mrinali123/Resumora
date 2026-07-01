@@ -15,6 +15,15 @@ test.describe('Authentication', () => {
   });
 
   test('login with invalid credentials shows error', async ({ page }) => {
+    // Mock the backend so this test works in CI without a real server running
+    await page.route('**/auth/login', (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, message: 'Invalid email or password' }),
+      })
+    );
+
     await page.goto('/login');
     await page.getByRole('textbox', { name: /email/i }).fill('nonexistent@test.com');
     await page.getByLabel(/password/i).fill('wrongpassword123');
