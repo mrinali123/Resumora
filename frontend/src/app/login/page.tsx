@@ -7,6 +7,7 @@ import { Eye, EyeOff, Mail } from "lucide-react";
 import { GoogleLogin } from "@react-oauth/google";
 import { api, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/context/auth-context";
+import { googleEnabled } from "@/components/Providers";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -259,24 +260,26 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
-          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
-          <span className="caption">or</span>
-          <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
-        </div>
-
-        {/* Google sign-in */}
-        <div className="flex justify-center" style={{ opacity: googleLoading ? 0.6 : 1, pointerEvents: googleLoading ? "none" : undefined }}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError("Google sign-in was cancelled or failed.")}
-            theme="filled_black"
-            shape="rectangular"
-            size="large"
-            width="320"
-          />
-        </div>
+        {/* Google sign-in — only rendered when NEXT_PUBLIC_GOOGLE_CLIENT_ID is configured */}
+        {googleEnabled && (
+          <>
+            <div className="flex items-center gap-3 my-5">
+              <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+              <span className="caption">or</span>
+              <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+            </div>
+            <div className="flex justify-center" style={{ opacity: googleLoading ? 0.6 : 1, pointerEvents: googleLoading ? "none" : undefined }}>
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError("Google sign-in was cancelled or failed.")}
+                theme="filled_black"
+                shape="rectangular"
+                size="large"
+                width="320"
+              />
+            </div>
+          </>
+        )}
 
         <p className="caption mt-6 text-center">
           No account?{" "}
